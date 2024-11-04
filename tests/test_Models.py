@@ -419,7 +419,7 @@ def test_price_security():
         tau=0.25,
         is_call=False,
     )
-    price = hw_model.price_security(caplet)[1]
+    price = hw_model.price_security(caplet, for_test=True)[1]
 
     answer = 0.000171285545718511
 
