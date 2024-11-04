@@ -408,15 +408,15 @@ if __name__ == "__main__":
         tenors,
         interp_method="linear",
     )
-    n = 500
-    reset_time = 1
+    n = 200
+    reset_time = 0.25
     hw_model = HW_model(Zcb_curve, vol_curve, n)
     hw_model.calibrate_model()
     swaption = Swaption(
         notional=1.0,
         reset_time=reset_time,
-        maturity_time=3.5,
-        fixed_premium_rate=0.025,
+        maturity_time=3,
+        fixed_premium_rate=0.03,
         premium_frequency=4,
         is_pay_fixed=True,
         exercisable_times=[reset_time],

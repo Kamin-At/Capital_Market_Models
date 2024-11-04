@@ -34,14 +34,14 @@ class Swaption(Security):
             is_exercisable: np.array[np.float] => 1 = exercisable else no exercisable
         """
         is_exercisable = np.arange(n) * dt
-        if self.exercisable_after_time:
+        if self.exercisable_after_time is not None:
             condition = (is_exercisable >= self.exercisable_after_time) & (
                 is_exercisable <= self.reset_time
             )
             is_exercisable = np.where(condition, 1.0, 0.0)
         else:
             is_exercisable = np.zeros(n)
-        if self.exercisable_times:
+        if self.exercisable_times is not None:
             for i in self.exercisable_times:
                 is_exercisable[int(i // dt)] = 1.0
         return is_exercisable
