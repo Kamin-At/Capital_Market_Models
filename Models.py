@@ -210,6 +210,7 @@ class HW_model(Model):
         self.transition_prob_matrix = np.zeros((2 * self.n + 1, 5))
         self.M = np.exp(-self.a * self.dt) - 1
         self.V = (self.sigma**2) * (1 - np.exp(-2 * self.a * self.dt)) / (2 * self.a)
+        self.dr_star = np.sqrt(3 * self.V)
         for i in range(2 * self.n + 1):
             for ind, prob_j in enumerate(self.calculate_transition_prob(i - self.n)):
                 self.transition_prob_matrix[i][ind] = prob_j
@@ -222,21 +223,23 @@ class HW_model(Model):
         Returns:
             -
         """
-        self.rate_tree = np.zeros((self.n, 2 * self.n + 1))
-        self.arrow_debreu_tree = np.zeros((self.n, 2 * self.n + 1))
+        self.rate_tree = np.zeros((self.n + 1, 2 * self.n + 1))
+        self.arrow_debreu_tree = np.zeros((self.n + 1, 2 * self.n + 1))
         self.arrow_debreu_tree[0, self.n] = 1.0
-        self.alpha = np.zeros(self.n)
+        self.alpha = np.zeros(self.n + 1)
         self.alpha[0] = -np.log(self.zcb_curve.interp(self.dt)) / self.dt
         self.rate_tree[0, self.n] = self.alpha[0]
-        self.j_max = int(0.184 / (self.a * self.dt))
-        self.j_min = -int(0.184 / (self.a * self.dt))
+        self.j_max = -0.184 / (np.exp(-self.a * self.dt) - 1)
+        if self.j_max != float(int(self.j_max)):
+            self.j_max = int(self.j_max) + 1
+        self.j_min = -self.j_max
 
         self.initilize_transition_matrix()
         self.j_vector = np.arange(2 * self.n + 1) - self.n
         self.dr_dt_discount = np.exp(-(self.j_vector) * self.dr_star * self.dt)
 
         # Moving from timestep 1 to self.n to find all the alpha(t) that reproduce the given zcb_curve
-        for t in range(1, self.n):
+        for t in range(1, self.n + 1):
             for j in range(self.n - t, self.n + t + 1):
                 if j - 2 >= 0:  # from j - 2 => 2 up
                     self.arrow_debreu_tree[t, j] += (
@@ -276,12 +279,33 @@ class HW_model(Model):
             )
             self.rate_tree[t] = self.alpha[t] + self.dr_star * self.j_vector
 
-    def trinomial_algorithm(self, notional, cashflows, exercisable_times, is_pay_fixed):
+    def trinomial_algorithm(
+        self,
+        notional,
+        cashflows,
+        exercisable_times,
+        is_call,
+        for_test=False,
+    ):
+        """
+        Trinomial algorithm to perform security pricing with recursion and memoization techniques
+        Args:
+            notional: float => notional amount
+            cashflows: np.array[float] => cashflows at each timestep. Ex: coupon or premium payments
+            exercisable_times: np.array[float] => exercise flag for each time step (0 = not exercisable)
+            is_call: bool => is a call option (for swaption, True = pay fixed, False = pay floating)
+            for_test: bool => flag for unit test (very specific with true price => Reference: Prof. Neil D. Pearson)
+        Returns:
+            bond_value: float => fair bond price (used during price calculations)
+            option_value: float => security value (for now only European, American and Bermudan swaptions and
+                          simple caplets (for simeple test case) are available)
+        """
+
         @cache
         def trinomial_pricing(i, j):
-            nonlocal notional, cashflows, exercisable_times, is_pay_fixed
-            if i == self.n - 1:
-                return cashflows[self.n - 1], 0.0
+            nonlocal notional, cashflows, exercisable_times, is_call
+            if i == self.n:
+                return cashflows[self.n], 0.0
             bond_value = 0.0
             option_value = 0.0
             # going up 2 levels
@@ -312,22 +336,29 @@ class HW_model(Model):
             bond_value *= np.exp(-self.rate_tree[i, j] * self.dt)
             bond_value += cashflows[i]
             option_value *= np.exp(-self.rate_tree[i, j] * self.dt)
-            value_if_exercise = (
-                max(notional - bond_value, 0.0)
-                if is_pay_fixed
-                else max(bond_value - notional, 0.0)
-            )
+
+            if for_test:
+                if is_call:
+                    value_if_exercise = notional * max(bond_value - 0.96, 0.0)
+                else:
+                    value_if_exercise = notional * max(0.96 - bond_value, 0.0)
+            else:
+                value_if_exercise = (
+                    max(notional - bond_value, 0.0)
+                    if is_call
+                    else max(bond_value - notional, 0.0)
+                )
             if exercisable_times[i]:
                 option_value = max(option_value, value_if_exercise)
             return bond_value, option_value
 
         return trinomial_pricing(0, self.n)
 
-    def price_swaption(self, swaption):
+    def price_security(self, Security):
         """
-        Calculate the swaption price.
+        Calculate the Security price.
         Args:
-            swaption: Swaption => Swaption class object
+            Security: Security => object from Security class in template
         Returns:
             price: float => the spwation price from HW model
         """
@@ -338,12 +369,19 @@ class HW_model(Model):
         assert (
             self.arrow_debreu_tree is not None
         ), "Calibration must be done before pricing"
-        cashflows = swaption.get_cashflows(self.dt, self.n)
-        exercisable_times = swaption.generate_exercisable_times(self.dt, self.n)
-        swaption_price = self.trinomial_algorithm(
-            swaption.notional, cashflows, exercisable_times, swaption.is_pay_fixed
+        cashflows = Security.get_cashflows(self.dt, self.n)
+        exercisable_times = Security.generate_exercisable_times(self.dt, self.n)
+        # swaption_price = self.trinomial_algorithm(
+        #     swaption.notional, cashflows, exercisable_times, swaption.is_pay_fixed
+        # )
+        # return swaption_price
+        price = self.trinomial_algorithm(
+            Security.notional,
+            cashflows,
+            exercisable_times,
+            Security.is_call,
         )
-        return swaption_price
+        return price
 
 
 if __name__ == "__main__":
@@ -409,20 +447,21 @@ if __name__ == "__main__":
         interp_method="linear",
     )
     n = 200
-    reset_time = 0.25
+    reset_time = 1.0
     hw_model = HW_model(Zcb_curve, vol_curve, n)
     hw_model.calibrate_model()
     swaption = Swaption(
         notional=1.0,
         reset_time=reset_time,
         maturity_time=3,
-        fixed_premium_rate=0.03,
+        fixed_premium_rate=0.025,
         premium_frequency=4,
+        coupon_times=[0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.00, 2.25, 2.50, 2.75, 3.00],
         is_pay_fixed=True,
         exercisable_times=[reset_time],
         exercisable_after_time=None,
     )
 
-    price = hw_model.price_swaption(swaption)
+    price = hw_model.price_security(swaption)
     print(price)
     print()

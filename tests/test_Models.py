@@ -328,7 +328,7 @@ def test_calibrate_model():
     hw_model.calibrate_model()
 
     answer = np.around(
-        [zcb_curve.interp((i + 1) * hw_model.dt) for i in range(n - 1)], PRECISION
+        [zcb_curve.interp((i + 1) * hw_model.dt) for i in range(n)], PRECISION
     )
     result = np.around(hw_model.arrow_debreu_tree.sum(axis=1)[1:], PRECISION)
 
@@ -336,3 +336,94 @@ def test_calibrate_model():
         assert (np.isnan(result[i]) and np.isnan(answer[i])) or result[i] == answer[
             i
         ], f"value should be {answer} but got {result}"
+
+
+def test_price_security():
+    PRECISION = 6
+
+    cap_prices = [
+        0.001928473,
+        0.003954714,
+        0.005964848,
+        0.008155229,
+        0.009895812,
+        0.011157567,
+        0.01237674,
+        0.012956468,
+        0.013612125,
+        0.013929541,
+        0.014375395,
+    ]
+
+    tenors = [
+        0.25,
+        0.5,
+        0.75,
+        1,
+        1.25,
+        1.5,
+        1.75,
+        2,
+        2.25,
+        2.5,
+        2.75,
+        3,
+    ]
+
+    zcb_curve = [
+        0.993719803,
+        0.987330937,
+        0.98083601,
+        0.97433509,
+        0.96802245,
+        0.961750709,
+        0.955519603,
+        0.949328867,
+        0.94317824,
+        0.937067463,
+        0.930996278,
+        0.924964427,
+    ]
+
+    vol_curve = Vol_curve(
+        cap_prices, zcb_curve, tenors, interp_method="piecewise constant", k=0.028
+    )
+    vol_curve.generate_caplet_vol_term_structure()
+
+    zcb_curve = Zcb_curve(
+        zcb_curve,
+        tenors,
+        interp_method="linear",
+    )
+    n = 36
+
+    hw_model = HW_model(zcb_curve, vol_curve, n)
+    # hw_model.calibrate_model()
+    k = np.array(hw_model.volatility_curve.k)
+    P_0_T = np.array(hw_model.zcb_curve.zcb_curve[:-1])
+    P_0_S = np.array(hw_model.zcb_curve.zcb_curve[1:])
+    T = np.array(hw_model.zcb_curve.tenors[:-1])
+    S = np.array(hw_model.zcb_curve.tenors[1:])
+
+    hw_model.calibrate_a_and_sigma(k, P_0_T, P_0_S, T, S)
+    hw_model.a = 0.5
+    hw_model.sigma = 0.012207
+
+    hw_model.calibrate_trinomial_tree()
+
+    caplet = Caplet(
+        notional=1.0,
+        reset_time=2,
+        maturity_time=3,
+        strike=0.04,
+        tau=0.25,
+        is_call=False,
+    )
+    price = hw_model.price_security(caplet)[1]
+
+    answer = 0.000171285545718511
+
+    answer = np.around(answer, PRECISION)
+    result = np.around(price, PRECISION)
+
+    assert result == answer, f"value should be {answer} but got {result}"

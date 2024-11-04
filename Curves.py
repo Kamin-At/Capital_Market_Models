@@ -36,9 +36,19 @@ class Zcb_curve(Curve):
 
         self.interp_method = interp_method
         if self.interp_method == "cubic spline":
-            self.interpolator = CubicSpline([0.0] + self.tenors, [1.0] + self.zcb_curve)
+            self.interpolator = CubicSpline(
+                [0.0] + self.tenors,
+                [1.0] + self.zcb_curve,
+                bounds_error=False,
+                fill_value="extrapolate",
+            )
         elif self.interp_method == "linear":
-            self.interpolator = interp1d([0.0] + self.tenors, [1.0] + self.zcb_curve)
+            self.interpolator = interp1d(
+                [0.0] + self.tenors,
+                [1.0] + self.zcb_curve,
+                bounds_error=False,
+                fill_value="extrapolate",
+            )
         else:
             raise NotImplementedError(
                 'interp_method must be "cubic spline" or "linear"'
@@ -87,10 +97,14 @@ class Vol_curve(Curve):
             self.zcb_curve, self.tenors
         )
         # If k is not given => assume that the given cap prices are ATM
-        if k:
+        if type(k) == float:
             self.k = [k] * (len(self.forward_swap_curve) - 1)
-        else:
+        elif type(k) == list:
+            self.k = np.array(k)
+        elif k is None:
             self.k = self.forward_swap_curve[1:]
+        else:
+            raise NotImplementedError
 
         self.forward_curve = zcb_curve_to_forward_curve(self.zcb_curve, self.tenors)
         self.interpolator = None
