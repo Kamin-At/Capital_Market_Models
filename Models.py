@@ -234,8 +234,6 @@ class HW_model(Model):
             )
             self.rate_tree[t] = self.alpha[t] + self.dr_star * self.j_vector
 
-        print()
-
     def eval_a_and_sigma(self, a, sigma, k, P_0_T, P_0_S, T, S, return_prices=False):
         """
         calculate calculate mean square error for calibration
@@ -316,14 +314,5 @@ if __name__ == "__main__":
     n = 100
 
     hw_model = HW_model(Zcb_curve, vol_curve, n)
-    # res = hw_model.hw_caplet_price(
-    #     1.21999850572609,
-    #     0.0181861598520475,
-    #     0.025,
-    #     0.993294242974175,
-    #     0.985145961,
-    #     0.261111111111111,
-    #     0.513888888888889,
-    # )  # ANS=0.00203769671844822
     hw_model.calibrate_model()
     print()
