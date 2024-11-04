@@ -8,7 +8,7 @@
 - utils.py: This contains basic but frequently used code for cap/caplets pricing, numerical methods for implied volatility, yield curve handling.
 - Templates.py: This contains the templates (mother classes) of many classes used in this application.
 - tests: The folder contains several test cases for unittest to ensure the reliability of the developed code.
-
+#### Note: Although the pricing method is mainly for Swaptions, I used cap prices with a specific strike rate to calibrate the HW model, which is inappropriate. This is because I currently do not have access to Bloomberg and will update the code soon.
 ### To install and check for compatibility, run build.sh or execute the following command
 - pip install -r requirements.txt
 - pytest
