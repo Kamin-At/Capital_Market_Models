@@ -97,6 +97,14 @@ class HW_model(Model):
         )
 
     def calibrate_model(self):
+        """
+        1.calibrate a and sigma to the cap market prices
+        2.calibrate alpha(t) with trinomial tree algorithm
+        Args:
+            -
+        Returns:
+            -
+        """
         # All the values observed from the market
         k = np.array(self.volatility_curve.k)
         P_0_T = np.array(self.zcb_curve.zcb_curve[:-1])
@@ -152,6 +160,17 @@ class HW_model(Model):
         self.dr_star = np.sqrt(3 * self.sigma**2 * self.dt)
 
     def calculate_transition_prob(self, j):
+        """
+        Calculate the transition probability for level j moving from timestep t to t+1
+        Args:
+            j: int => the level of the current node
+        Returns:
+            p_down2: float => probability of going down by 2 levels in the next timestep
+            p_down1: float => probability of going down by 1 level in the next timestep
+            p_mid: float => probability of no moving in the next timestep
+            p_up1: float => probability of going up by 1 levels in the next timestep
+            p_up2: float => probability of going up by 2 levels in the next timestep
+        """
         if self.j_min < j < self.j_max:
             p_up1 = 1 / 6 + (j**2 * self.M**2 + j * self.M) / 2
             p_up2 = 0.0
@@ -173,6 +192,14 @@ class HW_model(Model):
         return p_down2, p_down1, p_mid, p_up1, p_up2
 
     def initilize_transition_matrix(self):
+        """
+        Calculate the transition probability matrix for all the levels moving from timestep t to t+1.
+        This is for memoization.
+        Args:
+            -
+        Returns:
+            -
+        """
         self.transition_prob_matrix = np.zeros((2 * self.n + 1, 5))
         self.M = np.exp(-self.a * self.dt) - 1
         self.V = (self.sigma**2) * (1 - np.exp(-2 * self.a * self.dt)) / (2 * self.a)
@@ -181,6 +208,13 @@ class HW_model(Model):
                 self.transition_prob_matrix[i][ind] = prob_j
 
     def calibrate_trinomial_tree(self):
+        """
+        Calculate trinomial trees (arrow_debreu_tree, and rate_tree) and alpha(t).
+        Args:
+            -
+        Returns:
+            -
+        """
         self.rate_tree = np.zeros((self.n, 2 * self.n + 1))
         self.arrow_debreu_tree = np.zeros((self.n, 2 * self.n + 1))
         self.arrow_debreu_tree[0, self.n] = 1.0
@@ -194,6 +228,7 @@ class HW_model(Model):
         self.j_vector = np.arange(2 * self.n + 1) - self.n
         self.dr_dt_discount = np.exp(-(self.j_vector) * self.dr_star * self.dt)
 
+        # Moving from timestep 1 to self.n to find all the alpha(t) that reproduce the given zcb_curve
         for t in range(1, self.n):
             for j in range(self.n - t, self.n + t + 1):
                 if j - 2 >= 0:  # from j - 2 => 2 up
@@ -233,20 +268,6 @@ class HW_model(Model):
                 / self.dt
             )
             self.rate_tree[t] = self.alpha[t] + self.dr_star * self.j_vector
-
-    def eval_a_and_sigma(self, a, sigma, k, P_0_T, P_0_S, T, S, return_prices=False):
-        """
-        calculate calculate mean square error for calibration
-        Args:
-            a: float => mean reversion speed parameter
-            sigma: float => volatility parameter
-            return_prices: bool => return MSE with prices (if True => return (MSE, prices) else => return MSE)
-        Returns:
-            MSE: mean square error of the calibration
-            prices: model prices
-        """
-        model_prices = self.hw_caplet_price(a, sigma, k, P_0_T, P_0_S, T, S)
-        return model_prices - self.volatility_curve
 
 
 if __name__ == "__main__":
