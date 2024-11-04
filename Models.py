@@ -1,9 +1,13 @@
 from Templates import *
+from Securities import *
 from utils import *
 from scipy.stats import norm
 from Curves import *
 from scipy.optimize import minimize
-from functools import lru_cache
+from functools import cache
+import sys
+
+sys.setrecursionlimit(2000)
 
 
 class HW_model(Model):
@@ -23,6 +27,9 @@ class HW_model(Model):
         self.volatility_curve = volatility_curve
         self.n = n  # Max tenor
         self.dt = self.zcb_curve.tenors[-1] / self.n
+        self.rate_tree = None
+        self.alpha = None
+        self.arrow_debreu_tree = None
 
     def hw_caplet_price(self, a, sigma, k, P_0_T, P_0_S, T, S):
         """
@@ -269,6 +276,75 @@ class HW_model(Model):
             )
             self.rate_tree[t] = self.alpha[t] + self.dr_star * self.j_vector
 
+    def trinomial_algorithm(self, notional, cashflows, exercisable_times, is_pay_fixed):
+        @cache
+        def trinomial_pricing(i, j):
+            nonlocal notional, cashflows, exercisable_times, is_pay_fixed
+            if i == self.n - 1:
+                return cashflows[self.n - 1], 0.0
+            bond_value = 0.0
+            option_value = 0.0
+            # going up 2 levels
+            if j + 2 <= self.n + (i + 1):
+                tmp_bond_value, tmp_option_value = trinomial_pricing(i + 1, j + 2)
+                bond_value += tmp_bond_value * self.transition_prob_matrix[j, 4]
+                option_value += tmp_option_value * self.transition_prob_matrix[j, 4]
+            # going up 1 level
+            if j + 1 <= self.n + (i + 1):
+                tmp_bond_value, tmp_option_value = trinomial_pricing(i + 1, j + 1)
+                bond_value += tmp_bond_value * self.transition_prob_matrix[j, 3]
+                option_value += tmp_option_value * self.transition_prob_matrix[j, 3]
+            # idle
+            tmp_bond_value, tmp_option_value = trinomial_pricing(i + 1, j)
+            bond_value += tmp_bond_value * self.transition_prob_matrix[j, 2]
+            option_value += tmp_option_value * self.transition_prob_matrix[j, 2]
+            # going down 1 level
+            if j - 1 >= self.n - (i + 1):
+                tmp_bond_value, tmp_option_value = trinomial_pricing(i + 1, j - 1)
+                bond_value += tmp_bond_value * self.transition_prob_matrix[j, 1]
+                option_value += tmp_option_value * self.transition_prob_matrix[j, 1]
+            # going down 2 levels
+            if j - 2 >= self.n - (i + 1):
+                tmp_bond_value, tmp_option_value = trinomial_pricing(i + 1, j - 2)
+                bond_value += tmp_bond_value * self.transition_prob_matrix[j, 0]
+                option_value += tmp_option_value * self.transition_prob_matrix[j, 0]
+
+            bond_value *= np.exp(-self.rate_tree[i, j] * self.dt)
+            bond_value += cashflows[i]
+            option_value *= np.exp(-self.rate_tree[i, j] * self.dt)
+            value_if_exercise = (
+                max(notional - bond_value, 0.0)
+                if is_pay_fixed
+                else max(bond_value - notional, 0.0)
+            )
+            if exercisable_times[i]:
+                option_value = max(option_value, value_if_exercise)
+            return bond_value, option_value
+
+        return trinomial_pricing(0, self.n)
+
+    def price_swaption(self, swaption):
+        """
+        Calculate the swaption price.
+        Args:
+            swaption: Swaption => Swaption class object
+        Returns:
+            price: float => the spwation price from HW model
+        """
+        assert (
+            type(self.rate_tree) is not None
+        ), "Calibration must be done before pricing"
+        assert self.alpha is not None, "Calibration must be done before pricing"
+        assert (
+            self.arrow_debreu_tree is not None
+        ), "Calibration must be done before pricing"
+        cashflows = swaption.get_cashflows(self.dt, self.n)
+        exercisable_times = swaption.generate_exercisable_times(self.dt, self.n)
+        swaption_price = self.trinomial_algorithm(
+            swaption.notional, cashflows, exercisable_times, swaption.is_pay_fixed
+        )
+        return swaption_price
+
 
 if __name__ == "__main__":
     # Cap prices
@@ -332,8 +408,21 @@ if __name__ == "__main__":
         tenors,
         interp_method="linear",
     )
-    n = 100
-
+    n = 500
+    reset_time = 1
     hw_model = HW_model(Zcb_curve, vol_curve, n)
     hw_model.calibrate_model()
+    swaption = Swaption(
+        notional=1.0,
+        reset_time=reset_time,
+        maturity_time=3.5,
+        fixed_premium_rate=0.025,
+        premium_frequency=4,
+        is_pay_fixed=True,
+        exercisable_times=[reset_time],
+        exercisable_after_time=None,
+    )
+
+    price = hw_model.price_swaption(swaption)
+    print(price)
     print()

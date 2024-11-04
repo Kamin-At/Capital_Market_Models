@@ -10,7 +10,7 @@ class Swaption(Security):
         maturity_time,
         fixed_premium_rate,
         premium_frequency,
-        is_bermudan,
+        is_pay_fixed,
         exercisable_times=None,
         exercisable_after_time=None,
     ):
@@ -20,9 +20,9 @@ class Swaption(Security):
         self.maturity_time = maturity_time
         self.fixed_premium_rate = fixed_premium_rate
         self.premium_frequency = premium_frequency
-        self.is_bermudan = is_bermudan
         self.exercisable_times = exercisable_times
         self.exercisable_after_time = exercisable_after_time
+        self.is_pay_fixed = is_pay_fixed
 
     def generate_exercisable_times(self, dt, n):
         """
@@ -43,7 +43,7 @@ class Swaption(Security):
             is_exercisable = np.zeros(n)
         if self.exercisable_times:
             for i in self.exercisable_times:
-                is_exercisable[i // dt] = 1.0
+                is_exercisable[int(i // dt)] = 1.0
         return is_exercisable
 
     def get_cashflows(self, dt, n):
@@ -58,7 +58,9 @@ class Swaption(Security):
         tmp_time = self.reset_time + 1 / self.premium_frequency
         cashflows = np.zeros(n)
         while tmp_time <= self.maturity_time:
-            cashflows[tmp_time // dt] = (
+            cashflows[int(tmp_time // dt)] = (
                 self.notional * self.fixed_premium_rate / self.premium_frequency
             )
+            tmp_time += 1 / self.premium_frequency
+        cashflows[int((tmp_time - 1 / self.premium_frequency) // dt)] += self.notional
         return cashflows
