@@ -107,7 +107,7 @@ class HW_model(Model):
         self.calibrate_a_and_sigma(k, P_0_T, P_0_S, T, S)
         self.calibrate_trinomial_tree()
 
-    def calibrate_a_and_sigma(self, k, P_0_T, P_0_S, T, S):
+    def calibrate_a_and_sigma(self, k, P_0_T, P_0_S, T, S, is_without_constraint=False):
         """
         calibrate the mean reversion a and the short rate normal volatility sigma to the market cap prices
         Args:
@@ -123,15 +123,22 @@ class HW_model(Model):
             -
         """
         initial_guess = np.array([0.02, 0.01])  # a and sigma
-        x = minimize(
-            lambda x: (
-                100000
-                if x[0] <= 0.00 or x[1] <= 0.005 or x[0] >= 0.5 or x[1] >= 0.03
-                else self.get_mpse_cap(x, k, P_0_T, P_0_S, T, S)
-            ),
-            initial_guess,
-            method="Nelder-Mead",
-        )
+        if is_without_constraint:
+            x = minimize(
+                lambda x: (self.get_mpse_cap(x, k, P_0_T, P_0_S, T, S)),
+                initial_guess,
+                method="Nelder-Mead",
+            )
+        else:
+            x = minimize(
+                lambda x: (
+                    100000
+                    if x[0] <= 0.00 or x[1] <= 0.005 or x[0] >= 0.5 or x[1] >= 0.03
+                    else self.get_mpse_cap(x, k, P_0_T, P_0_S, T, S)
+                ),
+                initial_guess,
+                method="Nelder-Mead",
+            )
         print("calibration results:")
         print(x)
         print("Model cap prices:", self.hw_cap_price(x.x, k, P_0_T, P_0_S, T, S))
@@ -177,9 +184,9 @@ class HW_model(Model):
         self.rate_tree = np.zeros((self.n, 2 * self.n + 1))
         self.arrow_debreu_tree = np.zeros((self.n, 2 * self.n + 1))
         self.arrow_debreu_tree[0, self.n] = 1.0
-        self.u = np.zeros(self.n)
-        self.u[0] = -np.log(self.zcb_curve.interp(self.dt)) / self.dt
-        self.rate_tree[0, self.n] = self.u[0]
+        self.alpha = np.zeros(self.n)
+        self.alpha[0] = -np.log(self.zcb_curve.interp(self.dt)) / self.dt
+        self.rate_tree[0, self.n] = self.alpha[0]
         self.j_max = int(0.184 / (self.a * self.dt))
         self.j_min = -int(0.184 / (self.a * self.dt))
 
@@ -218,14 +225,14 @@ class HW_model(Model):
                         * self.transition_prob_matrix[j + 2, 0]
                         / np.exp(self.rate_tree[t - 1, j + 2] * self.dt)
                     )  # from j + 2 => 2 down
-            self.u[t] = (
+            self.alpha[t] = (
                 np.log(
                     (self.arrow_debreu_tree[t] * self.dr_dt_discount).sum()
                     / self.zcb_curve.interp(self.dt * (t + 1))
                 )
                 / self.dt
             )
-            self.rate_tree[t] = self.u[t] + self.dr_star * self.j_vector
+            self.rate_tree[t] = self.alpha[t] + self.dr_star * self.j_vector
 
         print()
 
