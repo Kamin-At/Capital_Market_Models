@@ -36,9 +36,9 @@ class Zcb_curve(Curve):
 
         self.interp_method = interp_method
         if self.interp_method == "cubic spline":
-            self.interpolator = CubicSpline(self.tenors, self.zcb_curve)
+            self.interpolator = CubicSpline([0.0] + self.tenors, [1.0] + self.zcb_curve)
         elif self.interp_method == "linear":
-            self.interpolator = interp1d(self.tenors, self.zcb_curve)
+            self.interpolator = interp1d([0.0] + self.tenors, [1.0] + self.zcb_curve)
         else:
             raise NotImplementedError(
                 'interp_method must be "cubic spline" or "linear"'
@@ -57,13 +57,7 @@ class Zcb_curve(Curve):
 
 
 class Vol_curve(Curve):
-    def __init__(
-        self,
-        cap_price_curve,
-        zcb_curve,
-        tenors,
-        interp_method,
-    ):
+    def __init__(self, cap_price_curve, zcb_curve, tenors, interp_method, k=None):
         """
         Class constructor
 
@@ -72,6 +66,7 @@ class Vol_curve(Curve):
             zcb_curve: Zcb_curve => zcb curve object
             tenors: list[float] => tenors in years (reset date not the maturity) => actual/360
             interp_method: str => "piecewise constant" (default 'piecewise constant')
+            k: float => strike rate
         Returns:
             Vol_curve object
         """
@@ -91,6 +86,12 @@ class Vol_curve(Curve):
         self.forward_swap_curve = zcb_curve_to_forward_swap_curve(
             self.zcb_curve, self.tenors
         )
+        # If k is not given => assume that the given cap prices are ATM
+        if k:
+            self.k = [k] * (len(self.forward_swap_curve) - 1)
+        else:
+            self.k = self.forward_swap_curve[1:]
+
         self.forward_curve = zcb_curve_to_forward_curve(self.zcb_curve, self.tenors)
         self.interpolator = None
         self.dt = 0.001  # for interpolation grid
@@ -170,7 +171,7 @@ class Vol_curve(Curve):
             tmp_cap_vol = get_black_cap_iv(
                 self.cap_price_curve[ind],
                 self.forward_curve[1 : ind + 2],
-                self.forward_swap_curve[ind + 1],
+                self.k[ind],
                 self.zcb_curve[1 : ind + 2],
                 self.tenors[: ind + 1],
                 taus=[0.25] * (ind + 1),
@@ -183,7 +184,7 @@ class Vol_curve(Curve):
                 caplet_normal_iv = get_normal_caplet_iv(
                     self.cap_price_curve[ind],
                     self.forward_curve[ind + 1],
-                    self.forward_swap_curve[ind + 1],
+                    self.k[ind],
                     self.zcb_curve[ind + 1],
                     self.tenors[ind],
                     tau=0.25,
@@ -196,7 +197,7 @@ class Vol_curve(Curve):
                 for caplet_ind, caplet_vol in enumerate(self.caplet_black_vols):
                     tmp_caplet_price = black_caplet_price(
                         self.forward_curve[caplet_ind + 1],
-                        self.forward_swap_curve[ind + 1],
+                        self.k[ind],
                         caplet_vol,
                         self.zcb_curve[caplet_ind + 1],
                         self.tenors[caplet_ind],
@@ -209,7 +210,7 @@ class Vol_curve(Curve):
                 for caplet_ind, caplet_vol in enumerate(self.caplet_normal_vols):
                     tmp_caplet_price = normal_caplet_price(
                         self.forward_curve[caplet_ind + 1],
-                        self.forward_swap_curve[ind + 1],
+                        self.k[ind],
                         caplet_vol,
                         self.zcb_curve[caplet_ind + 1],
                         self.tenors[caplet_ind],
@@ -226,7 +227,7 @@ class Vol_curve(Curve):
                 caplet_black_iv = get_black_caplet_iv(
                     tmp_black_caplet_price,
                     self.forward_curve[caplet_ind + 2],
-                    self.forward_swap_curve[ind + 1],
+                    self.k[ind],
                     self.zcb_curve[caplet_ind + 2],
                     self.tenors[caplet_ind + 1],
                     tau=0.25,
@@ -236,7 +237,7 @@ class Vol_curve(Curve):
                 caplet_normal_iv = get_normal_caplet_iv(
                     tmp_normal_caplet_price,
                     self.forward_curve[caplet_ind + 2],
-                    self.forward_swap_curve[ind + 1],
+                    self.k[ind],
                     self.zcb_curve[caplet_ind + 2],
                     self.tenors[caplet_ind + 1],
                     tau=0.25,
