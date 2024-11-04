@@ -43,3 +43,16 @@ class Curve:
 class Price_curve:
     def __init__(self):
         pass
+
+
+class Security:
+    def __init__(self):
+        pass
+
+    @abstractmethod
+    def generate_exercisable_times(self):
+        raise NotImplementedError
+
+    @abstractmethod
+    def get_cashflows(self):
+        raise NotImplementedError
