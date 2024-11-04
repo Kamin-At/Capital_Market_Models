@@ -354,7 +354,7 @@ class HW_model(Model):
 
         return trinomial_pricing(0, self.n)
 
-    def price_security(self, Security):
+    def price_security(self, Security, for_test=False):
         """
         Calculate the Security price.
         Args:
@@ -380,6 +380,7 @@ class HW_model(Model):
             cashflows,
             exercisable_times,
             Security.is_call,
+            for_test=for_test,
         )
         return price
 
