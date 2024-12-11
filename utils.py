@@ -267,7 +267,7 @@ def zcb_curve_to_forward_curve(zcb_curve, tenors):
 
 def zcb_curve_to_forward_swap_curve(zcb_curve, tenors):
     """
-    convert zcb_curve to forward_curve
+    convert zcb_curve to forward_swap_curve
 
     Args:
         zcb_curve: (list[float]) => zcb curve
@@ -300,22 +300,77 @@ def zcb_curve_to_forward_swap_curve(zcb_curve, tenors):
     return forward_swap_curve
 
 
-if __name__ == "__main__":
-    N = 1.0
-    f = 0.041950
-    k = 0.038863
-    sigma = 0.008461329
-    df = 0.977440241
-    t = 0
-    tau = 0.25
+def LMM_zcb_curve_to_swap_curve(zcb_curve, tenors):
+    """
+    convert zcb_curve to forward_swap_curve
 
-    result = normal_caplet_price(
-        f,
-        k,
-        sigma,
-        df,
-        t,
-        tau,
-        N,
-    )
-    print()
+    Args:
+        zcb_curve: (list[float]) => zcb curve
+        tenors: (list[float]) => tenors
+    Returns:
+        forward_swap_curve: (list[float]) => forward swap curve
+    """
+    assert len(zcb_curve) == len(
+        tenors
+    ), f"len(zcb_curve) [{len(zcb_curve)}] != len(tenors) [{len(tenors)}]"
+    forward_curve = zcb_curve_to_forward_curve(zcb_curve, tenors)
+    forward_swap_curve = []
+
+    for ind in range(len(tenors)):
+        sum_t_x_zcb = 0.0
+        for ind2 in range(ind + 1, len(tenors)):
+            sum_t_x_zcb += tenors[ind2] * zcb_curve[ind2]
+        forward_swap = 0.0
+        for ind2 in range(ind + 1, len(tenors)):
+            forward_swap += (
+                forward_curve[ind2] * tenors[ind2] * zcb_curve[ind2] / sum_t_x_zcb
+            )
+        forward_swap_curve.append(forward_swap)
+    return forward_swap_curve
+
+
+if __name__ == "__main__":
+    zcb_prices = [
+        0.978829041,
+        0.9708342,
+        0.963157821,
+        0.955975519,
+        0.9489389,
+        0.94188292,
+        0.934884149,
+        0.927855883,
+        0.920949452,
+        0.913943255,
+        0.906990357,
+        0.900043085,
+        0.893140513,
+        0.886216191,
+        0.879345551,
+        0.872459024,
+        0.865692769,
+        0.858830977,
+        0.852023574,
+    ]
+    time_to_reset_date = [
+        0.2500,
+        0.5000,
+        0.7500,
+        1.0000,
+        1.2500,
+        1.5000,
+        1.7500,
+        2.0000,
+        2.2500,
+        2.5000,
+        2.7500,
+        3.0000,
+        3.2500,
+        3.5000,
+        3.7500,
+        4.0000,
+        4.2500,
+        4.5000,
+        4.7500,
+    ]
+    lmm_fwd_swap_curve = LMM_zcb_curve_to_swap_curve(zcb_prices, time_to_reset_date)
+    print(lmm_fwd_swap_curve)

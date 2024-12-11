@@ -384,3 +384,71 @@ def test_zcb_curve_to_forward_swap_curve():
         assert (np.isnan(result[i]) and np.isnan(answer[i])) or result[i] == answer[
             i
         ], f"value should be {answer} but got {result}"
+
+
+def test_LMM_zcb_curve_to_swap_curve():
+    PRECISION = 6
+
+    zcb_curve = [
+        0.978829041,
+        0.9708342,
+        0.963157821,
+        0.955975519,
+        0.9489389,
+        0.94188292,
+        0.934884149,
+        0.927855883,
+        0.920949452,
+        0.913943255,
+        0.906990357,
+        0.900043085,
+        0.893140513,
+        0.886216191,
+        0.879345551,
+        0.872459024,
+        0.865692769,
+        0.858830977,
+        0.852023574,
+    ]
+    tenors = [
+        0.2500,
+        0.5000,
+        0.7500,
+        1.0000,
+        1.2500,
+        1.5000,
+        1.7500,
+        2.0000,
+        2.2500,
+        2.5000,
+        2.7500,
+        3.0000,
+        3.2500,
+        3.5000,
+        3.7500,
+        4.0000,
+        4.2500,
+        4.5000,
+        4.7500,
+    ]
+    result = LMM_zcb_curve_to_swap_curve(zcb_curve, tenors)
+    # Ex. if contract_start_time = 0.25 => the first cashflow of the swap(contract_start_time, final_cashflow_time) is at 0.5
+    # final_cashflow_time is always set to the last value in the provided tenor
+    answer = (
+        [  # (contract_start_time, index, S(contract_start_time, final_cashflow_time))
+            (
+                0.25,
+                0,
+                0.031059241,
+            ),
+            (1.00, 3, 0.031045668),
+            (2.00, 7, 0.031232946),
+        ]
+    )
+
+    for _, ind, tmp_answer in answer:
+        assert (np.isnan(result[ind]) and np.isnan(tmp_answer)) or np.around(
+            result[ind], PRECISION
+        ) == np.around(
+            tmp_answer, PRECISION
+        ), f"value should be {tmp_answer} but got {result[ind]}"
