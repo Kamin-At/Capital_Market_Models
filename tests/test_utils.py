@@ -431,10 +431,10 @@ def test_LMM_zcb_curve_to_swap_curve():
         4.5000,
         4.7500,
     ]
-    result = LMM_zcb_curve_to_swap_curve(zcb_curve, tenors)
+    result1, result2 = LMM_zcb_curve_to_swap_curve(zcb_curve, tenors)
     # Ex. if contract_start_time = 0.25 => the first cashflow of the swap(contract_start_time, final_cashflow_time) is at 0.5
     # final_cashflow_time is always set to the last value in the provided tenor
-    answer = (
+    answer1 = (
         [  # (contract_start_time, index, S(contract_start_time, final_cashflow_time))
             (
                 0.25,
@@ -445,10 +445,95 @@ def test_LMM_zcb_curve_to_swap_curve():
             (2.00, 7, 0.031232946),
         ]
     )
-
-    for _, ind, tmp_answer in answer:
-        assert (np.isnan(result[ind]) and np.isnan(tmp_answer)) or np.around(
-            result[ind], PRECISION
+    # Test for forward swap rate
+    for _, ind, tmp_answer in answer1:
+        assert (np.isnan(result1[ind]) and np.isnan(tmp_answer)) or np.around(
+            result1[ind], PRECISION
         ) == np.around(
             tmp_answer, PRECISION
-        ), f"value should be {tmp_answer} but got {result[ind]}"
+        ), f"value should be {tmp_answer} but got {result1[ind]}"
+    # Test for weight matrix
+    answer2 = [  # (contract_start_time, index, weight)
+        (
+            0.25,
+            0,
+            [
+                0.0,
+                0.011505841,
+                0.017122296,
+                0.022659486,
+                0.028115871,
+                0.033488173,
+                0.038779225,
+                0.043985932,
+                0.049115842,
+                0.054157988,
+                0.059120574,
+                0.064001158,
+                0.06880285,
+                0.073520932,
+                0.078161722,
+                0.082719578,
+                0.087207934,
+                0.09160591,
+                0.095928687,
+            ],
+        ),
+        (
+            1.00,
+            3,
+            [
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.029635822,
+                0.035298552,
+                0.040875639,
+                0.046363822,
+                0.051771056,
+                0.057085782,
+                0.062316647,
+                0.067461077,
+                0.072522349,
+                0.077495492,
+                0.082387164,
+                0.087191419,
+                0.091922417,
+                0.096558148,
+                0.101114615,
+            ],
+        ),
+        (
+            2.00,
+            7,
+            [
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.061063291,
+                0.067331942,
+                0.073501679,
+                0.079569468,
+                0.085539173,
+                0.09140493,
+                0.097174594,
+                0.102841151,
+                0.108421302,
+                0.113889087,
+                0.119263382,
+            ],
+        ),
+    ]
+    # Test for forward swap rate
+    for _, ind, tmp_answer in answer2:
+        for ind2 in range(len(tmp_answer)):
+            assert np.around(result2[ind, ind2], PRECISION) == np.around(
+                tmp_answer[ind2], PRECISION
+            ), f"value should be {tmp_answer} but got {result2[ind]}"
+    print()

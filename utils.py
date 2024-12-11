@@ -309,12 +309,14 @@ def LMM_zcb_curve_to_swap_curve(zcb_curve, tenors):
         tenors: (list[float]) => tenors
     Returns:
         forward_swap_curve: (list[float]) => forward swap curve
+        weight_matrix: (np.array[float]) => weight matrix for swap rate calculation => the way to access: weight_matrix[contract_start_time, index]
     """
     assert len(zcb_curve) == len(
         tenors
     ), f"len(zcb_curve) [{len(zcb_curve)}] != len(tenors) [{len(tenors)}]"
     forward_curve = zcb_curve_to_forward_curve(zcb_curve, tenors)
     forward_swap_curve = []
+    weight_matrix = np.zeros((len(tenors), len(tenors)))
 
     for ind in range(len(tenors)):
         sum_t_x_zcb = 0.0
@@ -322,11 +324,11 @@ def LMM_zcb_curve_to_swap_curve(zcb_curve, tenors):
             sum_t_x_zcb += tenors[ind2] * zcb_curve[ind2]
         forward_swap = 0.0
         for ind2 in range(ind + 1, len(tenors)):
-            forward_swap += (
-                forward_curve[ind2] * tenors[ind2] * zcb_curve[ind2] / sum_t_x_zcb
-            )
+            w = tenors[ind2] * zcb_curve[ind2] / sum_t_x_zcb
+            weight_matrix[ind, ind2] = w
+            forward_swap += forward_curve[ind2] * w
         forward_swap_curve.append(forward_swap)
-    return forward_swap_curve
+    return forward_swap_curve, weight_matrix
 
 
 if __name__ == "__main__":
@@ -372,5 +374,7 @@ if __name__ == "__main__":
         4.5000,
         4.7500,
     ]
-    lmm_fwd_swap_curve = LMM_zcb_curve_to_swap_curve(zcb_prices, time_to_reset_date)
+    lmm_fwd_swap_curve, w_matrix = LMM_zcb_curve_to_swap_curve(
+        zcb_prices, time_to_reset_date
+    )
     print(lmm_fwd_swap_curve)
