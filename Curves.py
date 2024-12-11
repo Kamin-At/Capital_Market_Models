@@ -3,6 +3,7 @@ import scipy.integrate as integrate
 from scipy.interpolate import CubicSpline, interp1d
 from Templates import *
 from utils import *
+from functools import cache
 
 
 class Zcb_curve(Curve):
@@ -77,6 +78,7 @@ class Vol_curve(Curve):
         interp_method,
         k=None,
         is_parametric=False,
+        rho_function="simple exponential",
     ):
         """
         Class constructor
@@ -88,6 +90,8 @@ class Vol_curve(Curve):
             interp_method: str => "piecewise constant" (default 'piecewise constant')
             k: float => strike rate
             is_parametric: Bool => If true, use parametric method
+            rho_function: str => choose from ['simple exponential', 'complex exponential']
+                                 simple exponential = exp(-beta * abs(t_i - t_j))
         Returns:
             Vol_curve object
         """
@@ -99,6 +103,10 @@ class Vol_curve(Curve):
         assert interp_method in [
             "piecewise constant",
         ], "interp_method must be in ['piecewise constant']"
+        assert rho_function in [
+            "simple exponential",
+            "complex exponential",
+        ], "rho_function must be in ['simple exponential', 'complex exponential']"
 
         self.cap_price_curve = cap_price_curve
         self.zcb_curve = zcb_curve
@@ -118,10 +126,15 @@ class Vol_curve(Curve):
             raise NotImplementedError
 
         self.forward_curve = zcb_curve_to_forward_curve(self.zcb_curve, self.tenors)
+        self.lmm_forward_swap_curve, self.lmm_w_matrix = LMM_zcb_curve_to_swap_curve(
+            self.zcb_curve, self.tenors
+        )
         self.interpolator = None
         self.dt = 0.001  # for interpolation grid
         self.is_parametric = is_parametric
         self.params = None
+        self.rho_function = rho_function
+        self.rho_params = None
 
     def interp(self, T, vol_type="black"):
         """
@@ -326,6 +339,150 @@ class Vol_curve(Curve):
         print(x)
         return x
 
+    def cal_rho(self, rho_params, t1, t2):
+        """
+        Compute the implied volatility function with parametric approach => rho_i_j = exp(-beta * |t1-t2|) for simple exponential
+        Args:
+            rho_params: list[double] (size of 1) => parameters beta
+            t1: float => start contract time 1
+            t2: float => start contract time 2
+        Returns:
+            rho: float => rho value
+        """
+        if self.rho_function == "simple exponential":
+            beta = rho_params[0]
+            return np.exp(-beta * np.abs(t1 - t2))
+        elif self.rho_function == "complex exponential":
+            rho, alpha, beta, kappa = rho_params
+            rho_bar_min = rho * np.tanh(alpha * min(t1, t2))
+            beta_min = beta * min(t1, t2) ** (-kappa)
+            result = rho_bar_min + (1 - rho_bar_min) * np.exp(
+                -beta_min * np.abs(t1 - t2)
+            )
+            return result
+        else:
+            raise NotImplementedError
+
+    @cache
+    def cal_integral_sigma1_sigma2(self, t, t1, t2):
+        """
+        Compute the integration from 0 to t of sigma_maturity_t1 * sigma_maturity_t2 dt
+        Args:
+            t: float => reset date
+            t1: float => maturity t1
+            t2: float => maturity t2
+        Returns:
+            result: float => the discrete integration result
+        """
+        result = 0.0
+        n = int(t // self.tenors[0]) if t >= self.tenors[0] else 1
+        prev_tenor = 0.0
+        for ind in range(n):
+            result += (
+                (self.tenors[ind] - prev_tenor)
+                * self.interp(np.abs(t2 - self.tenors[ind]))
+                * self.interp(np.abs(t1 - self.tenors[ind]))
+            )
+            prev_tenor = self.tenors[ind]
+        return result
+
+    def cal_rebonato_formula(self, rho_params, t):
+        """
+        Compute rebonato_formula
+        Args:
+            rho_params: list[double] (size of 1) => parameters beta
+            t: float => reset date
+        Returns:
+            result: float => the rebonato_formula result
+        """
+
+        contract_start_index = int(t // self.tenors[0])
+        swap_rate = self.lmm_forward_swap_curve[contract_start_index]
+        result = 0.0
+        for ind1 in range(contract_start_index, len(self.tenors)):
+            t1 = self.tenors[ind1]
+            w1 = self.lmm_w_matrix[contract_start_index, ind1]
+            for ind2 in range(contract_start_index, len(self.tenors)):
+                t2 = self.tenors[ind2]
+                w2 = self.lmm_w_matrix[contract_start_index, ind2]
+                tmp_rho = self.cal_rho(rho_params, t1, t2)
+                if (
+                    np.abs(tmp_rho) > 1
+                ):  # to make sure the output correlations are in [-1, 1]
+                    return 1000000
+                result += (
+                    w1
+                    * w2
+                    * self.forward_curve[ind1]
+                    * self.forward_curve[ind2]
+                    * self.cal_integral_sigma1_sigma2(t, min(t1, t2), max(t1, t2))
+                    * tmp_rho
+                )
+                print(
+                    "t1:",
+                    t1,
+                    "w1:",
+                    w1,
+                    "t2:",
+                    t2,
+                    "w2:",
+                    w2,
+                    "f1:",
+                    self.forward_curve[ind1],
+                    "f2:",
+                    self.forward_curve[ind2],
+                    "integration val:",
+                    self.cal_integral_sigma1_sigma2(t, min(t1, t2), max(t1, t2)),
+                    "tmp_rho:",
+                    tmp_rho,
+                )
+        return result / (swap_rate) ** 2
+
+    def fit_corr_matrix(self, swaption_vol, swaption_reset_dates):
+        """
+        Calibrate the rho parametric function (parameter: beta) from the swaption volatility
+        Args:
+            swaption_vol: list[float] => swaption black volatilities
+            swaption_reset_dates: list[float] => swaption reset dates
+            maturity_date: float => the final maturity date (co-terminal concept => only 1 maturity date)
+        Returns:
+            fitted_rho_params: list[double] (size of 1) => parameters beta
+        """
+        assert len(swaption_vol) == len(
+            swaption_reset_dates
+        ), "len(swaption_vol) must be the same as len(swaption_reset_dates)."
+
+        def eval_mse(rho_params):
+            nonlocal swaption_vol, swaption_reset_dates
+            mse = 0.0
+            for ind in range(len(swaption_vol)):
+                model_total_variance = self.cal_rebonato_formula(
+                    rho_params, swaption_reset_dates[ind]
+                )
+                market_total_variance = (swaption_vol[ind] ** 2) * swaption_reset_dates[
+                    ind
+                ]
+                print(
+                    "market_total_variance:",
+                    market_total_variance,
+                    "model_total_variance:",
+                    model_total_variance,
+                )
+                mse += (market_total_variance - model_total_variance) ** 2
+            mse = mse / len(swaption_vol)
+            print("mse:", mse)
+            print("------------------------------------")
+            return mse
+
+        if self.rho_function == "simple exponential":
+            rho_params = np.array([0.25])
+        elif self.rho_function == "complex exponential":
+            rho_params = np.array([0.8, 0.2, 0.2, 0.2])  # rho, alpha, beta, kappa
+        else:
+            raise NotImplementedError
+        x = minimize(eval_mse, rho_params, method="Nelder-Mead", tol=1e-6)
+        return x
+
 
 if __name__ == "__main__":
     cap_price_curve = [
@@ -423,9 +580,15 @@ if __name__ == "__main__":
         zcb_curve,
         tenors,
         interp_method="piecewise constant",
-        is_parametric=True,
+        is_parametric=False,
+        # rho_function="simple exponential",
+        rho_function="complex exponential",
     )
     vol_curve.generate_caplet_vol_term_structure()
     b_vol = vol_curve.interp(0.1, vol_type="black")
-    # n_vol = vol_curve.interp(0.1, vol_type="normal")
+    # swaption_vol = [0.31, 0.33, 0.35, 0.3, 0.25]
+    swaption_vol = [0.25, 0.3, 0.35, 0.33, 0.31]
+    # swaption_vol = [0.26, 0.30, 0.35, 0.37, 0.30]
+    swaption_reset_dates = [1 / 12, 1.0, 2.0, 3.0, 4.0]
+    x = vol_curve.fit_corr_matrix(swaption_vol, swaption_reset_dates)
     print("")
