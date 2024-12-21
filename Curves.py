@@ -73,7 +73,7 @@ class Vol_curve(Curve):
     def __init__(
         self,
         cap_price_curve,
-        cap_black_vols,
+        # cap_black_vols,
         zcb_curve,
         tenors,
         interp_method,
@@ -86,7 +86,6 @@ class Vol_curve(Curve):
 
         Args:
             cap_price_curve: list[float] => ATM cap price curve
-            cap_black_vols: list[float] => ATM cap vol curve
             zcb_curve: Zcb_curve => zcb curve object
             tenors: list[float] => tenors in years (reset date not the maturity) => actual/360
             interp_method: str => "piecewise constant" (default 'piecewise constant')
@@ -111,7 +110,6 @@ class Vol_curve(Curve):
         ], "rho_function must be in ['simple exponential', 'complex exponential']"
 
         self.cap_price_curve = cap_price_curve
-        self.cap_black_vols = cap_black_vols
         self.zcb_curve = zcb_curve
         self.tenors = tenors
         self.interp_method = interp_method
@@ -200,36 +198,36 @@ class Vol_curve(Curve):
         else:
             raise NotImplementedError("vol_type must be in ['black', 'normal']")
 
-    def generate_caplet_vol_term_structure_from_cap_vol(self):
-        """
-        Use cap prices to calculate caplet Black's and Normal vol term structures
-        Idea:   tenor1 => sigma_cap_1 = sigma_caplet_1
-                tenor2 => t2 * sigma_cap_2 ^ 2  = t1 * sigma_cap_1 ^ 2 + (t2 - t1) * sigma_caplet_2 ^ 2
-                Solve for sigma_caplet_2
-                Then keep going for all the cap vol => we then get the caplet vol term structure
-                if is_parametric is True => optimize for its parameters after the piecewise constant.
-        Args:
-            -
-        Returns:
-            -
-        """
-        self.caplet_black_vols = []
+    # def generate_caplet_vol_term_structure_from_cap_vol(self):
+    #     """
+    #     Use cap prices to calculate caplet Black's and Normal vol term structures
+    #     Idea:   tenor1 => sigma_cap_1 = sigma_caplet_1
+    #             tenor2 => t2 * sigma_cap_2 ^ 2  = t1 * sigma_cap_1 ^ 2 + (t2 - t1) * sigma_caplet_2 ^ 2
+    #             Solve for sigma_caplet_2
+    #             Then keep going for all the cap vol => we then get the caplet vol term structure
+    #             if is_parametric is True => optimize for its parameters after the piecewise constant.
+    #     Args:
+    #         -
+    #     Returns:
+    #         -
+    #     """
+    #     self.caplet_black_vols = []
 
-        for ind in range(len(self.cap_black_vols)):
-            tmp_cap_vol = self.cap_black_vols[ind]
-            if ind == 0:
-                self.caplet_black_vols.append(tmp_cap_vol)
-            else:
-                caplet_black_iv = (
-                    (
-                        self.tenors[ind] * (self.cap_black_vols[ind]) ** 2
-                        - self.tenors[ind - 1] * (self.cap_black_vols[ind - 1]) ** 2
-                    )
-                    / (self.tenors[ind] - self.tenors[ind - 1])
-                ) ** 0.5
-                self.caplet_black_vols.append(caplet_black_iv)
-            if self.is_parametric:
-                self.params = self.solve_parametric()
+    #     for ind in range(len(self.cap_black_vols)):
+    #         tmp_cap_vol = self.cap_black_vols[ind]
+    #         if ind == 0:
+    #             self.caplet_black_vols.append(tmp_cap_vol)
+    #         else:
+    #             caplet_black_iv = (
+    #                 (
+    #                     self.tenors[ind] * (self.cap_black_vols[ind]) ** 2
+    #                     - self.tenors[ind - 1] * (self.cap_black_vols[ind - 1]) ** 2
+    #                 )
+    #                 / (self.tenors[ind] - self.tenors[ind - 1])
+    #             ) ** 0.5
+    #             self.caplet_black_vols.append(caplet_black_iv)
+    #         if self.is_parametric:
+    #             self.params = self.solve_parametric()
 
     def generate_caplet_vol_term_structure(self):
         """

@@ -300,6 +300,34 @@ def zcb_curve_to_forward_swap_curve(zcb_curve, tenors):
     return forward_swap_curve
 
 
+def forward_curve_to_spot_curve(fwd_curve, tenors):
+    """
+    convert forward_curve to spot_curve
+
+    Args:
+        fwd_curve: (list[float]) => forward curve
+        tenors: (list[float]) => tenors
+    Returns:
+        spot_curve: (list[float]) => spot curve
+        output_tenors: (list[float]) => spot curve tenors
+    """
+    assert len(fwd_curve) == len(
+        tenors
+    ), f"len(fwd_curve) [{len(fwd_curve)}] != len(tenors) [{len(tenors)}]"
+    assert tenors[0] == 0, "the provided forward curve must start from 0."
+    tau = 0.25
+    spot_curve = []
+    output_tenors = tenors[1:] + [tenors[-1] + tau]
+    buffer = 1.0
+    for i in range(len(fwd_curve)):
+        buffer *= 1.0 + fwd_curve[i] * tau
+        if i == 0:
+            spot_curve.append(fwd_curve[i])
+        else:
+            spot_curve.append((buffer - 1) / output_tenors[i])
+    return spot_curve, output_tenors
+
+
 def LMM_zcb_curve_to_swap_curve(zcb_curve, tenors):
     """
     convert zcb_curve to forward_swap_curve
@@ -332,28 +360,21 @@ def LMM_zcb_curve_to_swap_curve(zcb_curve, tenors):
 
 
 if __name__ == "__main__":
-    zcb_prices = [
-        0.978829041,
-        0.9708342,
-        0.963157821,
-        0.955975519,
-        0.9489389,
-        0.94188292,
-        0.934884149,
-        0.927855883,
-        0.920949452,
-        0.913943255,
-        0.906990357,
-        0.900043085,
-        0.893140513,
-        0.886216191,
-        0.879345551,
-        0.872459024,
-        0.865692769,
-        0.858830977,
-        0.852023574,
+
+    fwd_curve = [
+        0.0498490000,
+        0.0419500000,
+        0.0357490000,
+        0.0320130000,
+        0.0297920000,
+        0.0288820000,
+        0.0288230000,
+        0.0291070000,
+        0.0291350000,
     ]
+
     time_to_reset_date = [
+        0.0,
         0.2500,
         0.5000,
         0.7500,
@@ -362,19 +383,8 @@ if __name__ == "__main__":
         1.5000,
         1.7500,
         2.0000,
-        2.2500,
-        2.5000,
-        2.7500,
-        3.0000,
-        3.2500,
-        3.5000,
-        3.7500,
-        4.0000,
-        4.2500,
-        4.5000,
-        4.7500,
     ]
-    lmm_fwd_swap_curve, w_matrix = LMM_zcb_curve_to_swap_curve(
-        zcb_prices, time_to_reset_date
-    )
-    print(lmm_fwd_swap_curve)
+
+    out = forward_curve_to_spot_curve(fwd_curve, time_to_reset_date)
+    print(fwd_curve)
+    print()

@@ -386,6 +386,76 @@ def test_zcb_curve_to_forward_swap_curve():
         ], f"value should be {answer} but got {result}"
 
 
+def test_forward_curve_to_spot_curve():
+    PRECISION = 6
+
+    fwd_curve = [
+        0.0498490000,
+        0.0419500000,
+        0.0357490000,
+        0.0320130000,
+        0.0297920000,
+        0.0288820000,
+        0.0288230000,
+        0.0291070000,
+        0.0291350000,
+    ]
+    tenors = [
+        0.0,
+        0.2500,
+        0.5000,
+        0.7500,
+        1.0000,
+        1.2500,
+        1.5000,
+        1.7500,
+        2.0000,
+    ]
+    result, result_tenors = forward_curve_to_spot_curve(fwd_curve, tenors)
+
+    answer = [
+        0.04984900,
+        0.04616090,
+        0.04296530,
+        0.04048512,
+        0.03858772,
+        0.03720229,
+        0.03623502,
+        0.03557473,
+        0.03508953,
+    ]
+
+    answer_tenors = [
+        0.25,
+        0.50,
+        0.75,
+        1.00,
+        1.25,
+        1.50,
+        1.75,
+        2.00,
+        2.25,
+    ]
+
+    answer_tenors = np.around(answer_tenors, PRECISION)
+    result_tenors = np.around(result_tenors, PRECISION)
+
+    for i in range(len(answer_tenors)):
+        assert (
+            np.isnan(result_tenors[i]) and np.isnan(answer_tenors[i])
+        ) or result_tenors[i] == answer_tenors[
+            i
+        ], f"value should be {answer_tenors} but got {result_tenors}"
+
+    answer = np.around(answer, PRECISION)
+    result = np.around(result, PRECISION)
+
+    for i in range(len(answer)):
+        assert (np.isnan(result[i]) and np.isnan(answer[i])) or result[i] == answer[
+            i
+        ], f"value should be {answer} but got {result}"
+
+
 def test_LMM_zcb_curve_to_swap_curve():
     PRECISION = 6
 
