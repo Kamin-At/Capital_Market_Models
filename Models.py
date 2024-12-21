@@ -103,7 +103,7 @@ class HW_model(Model):
             ** 2
         )
 
-    def calibrate_model(self):
+    def calibrate_model(self, is_without_constraint=False):
         """
         1.calibrate a and sigma to the cap market prices
         2.calibrate alpha(t) with trinomial tree algorithm
@@ -119,7 +119,9 @@ class HW_model(Model):
         T = np.array(self.zcb_curve.tenors[:-1])
         S = np.array(self.zcb_curve.tenors[1:])
 
-        self.calibrate_a_and_sigma(k, P_0_T, P_0_S, T, S)
+        self.calibrate_a_and_sigma(
+            k, P_0_T, P_0_S, T, S, is_without_constraint=is_without_constraint
+        )
         self.calibrate_trinomial_tree()
 
     def calibrate_a_and_sigma(self, k, P_0_T, P_0_S, T, S, is_without_constraint=False):

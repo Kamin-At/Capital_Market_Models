@@ -73,6 +73,7 @@ class Vol_curve(Curve):
     def __init__(
         self,
         cap_price_curve,
+        cap_black_vols,
         zcb_curve,
         tenors,
         interp_method,
@@ -84,7 +85,8 @@ class Vol_curve(Curve):
         Class constructor
 
         Args:
-            cap_price_curve: list[float] => ATM cap price curves
+            cap_price_curve: list[float] => ATM cap price curve
+            cap_black_vols: list[float] => ATM cap vol curve
             zcb_curve: Zcb_curve => zcb curve object
             tenors: list[float] => tenors in years (reset date not the maturity) => actual/360
             interp_method: str => "piecewise constant" (default 'piecewise constant')
@@ -109,6 +111,7 @@ class Vol_curve(Curve):
         ], "rho_function must be in ['simple exponential', 'complex exponential']"
 
         self.cap_price_curve = cap_price_curve
+        self.cap_black_vols = cap_black_vols
         self.zcb_curve = zcb_curve
         self.tenors = tenors
         self.interp_method = interp_method
@@ -162,30 +165,71 @@ class Vol_curve(Curve):
                     if ind >= len(self.caplet_black_vols):
                         break
                 tenor_grid.append(tmp_t)
-                black_vol_grid.append(self.caplet_black_vols[ind])
-                normal_vol_grid.append(self.caplet_normal_vols[ind])
+                if vol_type == "black":
+                    black_vol_grid.append(self.caplet_black_vols[ind])
+                elif vol_type == "normal":
+                    normal_vol_grid.append(self.caplet_normal_vols[ind])
+                else:
+                    raise NotImplementedError("vol_type must be in ['black', 'normal']")
                 ind_dt += 1
-
-            self.black_iv_interpolator = interp1d(
-                tenor_grid,
-                black_vol_grid,
-                kind="nearest",
-                bounds_error=False,
-                fill_value=(self.caplet_black_vols[0], self.caplet_black_vols[-1]),
-            )
-            self.normal_iv_interpolator = interp1d(
-                tenor_grid,
-                normal_vol_grid,
-                kind="nearest",
-                bounds_error=False,
-                fill_value=(self.caplet_normal_vols[0], self.caplet_normal_vols[-1]),
-            )
+            if vol_type == "black":
+                self.black_iv_interpolator = interp1d(
+                    tenor_grid,
+                    black_vol_grid,
+                    kind="nearest",
+                    bounds_error=False,
+                    fill_value=(self.caplet_black_vols[0], self.caplet_black_vols[-1]),
+                )
+            elif vol_type == "normal":
+                self.normal_iv_interpolator = interp1d(
+                    tenor_grid,
+                    normal_vol_grid,
+                    kind="nearest",
+                    bounds_error=False,
+                    fill_value=(
+                        self.caplet_normal_vols[0],
+                        self.caplet_normal_vols[-1],
+                    ),
+                )
+            else:
+                raise NotImplementedError("vol_type must be in ['black', 'normal']")
         if vol_type == "black":
             return self.black_iv_interpolator(T)
         elif vol_type == "normal":
             return self.normal_iv_interpolator(T)
         else:
             raise NotImplementedError("vol_type must be in ['black', 'normal']")
+
+    def generate_caplet_vol_term_structure_from_cap_vol(self):
+        """
+        Use cap prices to calculate caplet Black's and Normal vol term structures
+        Idea:   tenor1 => sigma_cap_1 = sigma_caplet_1
+                tenor2 => t2 * sigma_cap_2 ^ 2  = t1 * sigma_cap_1 ^ 2 + (t2 - t1) * sigma_caplet_2 ^ 2
+                Solve for sigma_caplet_2
+                Then keep going for all the cap vol => we then get the caplet vol term structure
+                if is_parametric is True => optimize for its parameters after the piecewise constant.
+        Args:
+            -
+        Returns:
+            -
+        """
+        self.caplet_black_vols = []
+
+        for ind in range(len(self.cap_black_vols)):
+            tmp_cap_vol = self.cap_black_vols[ind]
+            if ind == 0:
+                self.caplet_black_vols.append(tmp_cap_vol)
+            else:
+                caplet_black_iv = (
+                    (
+                        self.tenors[ind] * (self.cap_black_vols[ind]) ** 2
+                        - self.tenors[ind - 1] * (self.cap_black_vols[ind - 1]) ** 2
+                    )
+                    / (self.tenors[ind] - self.tenors[ind - 1])
+                ) ** 0.5
+                self.caplet_black_vols.append(caplet_black_iv)
+            if self.is_parametric:
+                self.params = self.solve_parametric()
 
     def generate_caplet_vol_term_structure(self):
         """
@@ -386,6 +430,39 @@ class Vol_curve(Curve):
             prev_tenor = self.tenors[ind]
         return result
 
+    def cal_cov(self, rho_params, t1, t2):
+        """
+        Compute the integration from 0 to t of sigma_maturity_t1 * sigma_maturity_t2 dt
+        Args:
+            rho_params: array[float] => parameters for rho function
+            t1: float => time from now to forward rate1
+            t2: float => time from now to forward rate2
+        Returns:
+            result: float => the discrete integration result * rho()
+        """
+        return (
+            self.cal_rho(rho_params, t1, t2)
+            * self.interp(t1, vol_type="black")
+            * self.interp(t2, vol_type="black")
+        )
+
+    def get_cov_matrix(self, rho_params, tenors):
+        """
+        Compute the covariance matrix of forward rates given their tenors
+        Args:
+            rho_params: array[float] => parameters for rho function
+            tenors: list[float] => tenors of each forward rate
+        Returns:
+            cov_matrix: np.array[float, float] => covariance matrix of the forward rates
+            chol: np.array[float, float] => cholesky decomposition of the cov_matrix
+        """
+        cov_matrix = np.zeros((len(tenors), len(tenors)))
+        for i in range(len(tenors)):
+            for j in range(len(tenors)):
+                cov_matrix[i, j] = self.cal_cov(rho_params, tenors[i], tenors[j])
+        chol = np.linalg.cholesky(cov_matrix)
+        return cov_matrix, chol
+
     def cal_rebonato_formula(self, rho_params, t):
         """
         Compute rebonato_formula
@@ -577,18 +654,25 @@ if __name__ == "__main__":
 
     vol_curve = Vol_curve(
         cap_price_curve,
+        cap_vol,
         zcb_curve,
         tenors,
         interp_method="piecewise constant",
         is_parametric=False,
-        # rho_function="simple exponential",
-        rho_function="complex exponential",
+        rho_function="simple exponential",
+        # rho_function="complex exponential",
     )
     vol_curve.generate_caplet_vol_term_structure()
+    # vol_curve.generate_caplet_vol_term_structure_from_cap_vol()# Not working
     b_vol = vol_curve.interp(0.1, vol_type="black")
     # swaption_vol = [0.31, 0.33, 0.35, 0.3, 0.25]
-    swaption_vol = [0.25, 0.3, 0.35, 0.33, 0.31]
+    # swaption_vol = [0.25, 0.3, 0.35, 0.33, 0.31]
     # swaption_vol = [0.26, 0.30, 0.35, 0.37, 0.30]
+    # Actual swaption vol  @ 10/21/24
+    # swaption_vol = [0.3693, 0.3147, 0.3072, 0.2998, 0.2963]
+    # Actual swaption vol  @ 09/28/24
+    swaption_vol = [0.3089, 0.3419, 0.338, 0.3282, 0.3269]
     swaption_reset_dates = [1 / 12, 1.0, 2.0, 3.0, 4.0]
     x = vol_curve.fit_corr_matrix(swaption_vol, swaption_reset_dates)
+    cov_mat, chol = vol_curve.get_cov_matrix(x.x, [1, 2, 3, 4, 5])
     print("")
